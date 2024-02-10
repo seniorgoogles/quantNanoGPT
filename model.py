@@ -17,6 +17,7 @@ from torch.nn import functional as F
 
 import brevitas.nn as qnn
 from brevitas.quant import Int32Bias
+from quantizer import IntDynamicWeightPerTensorFixedPoint, BiasQuantizer
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -97,10 +98,10 @@ class MLP(nn.Module):
 class QuantMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.quant_inp  = qnn.QuantIdentity(bit_width=4, return_quant_tensor=True)
-        self.c_fc       = qnn.QuantLinear(config.n_embd, 4 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width)
-        self.relu       = qnn.QuantReLU(bit_width=config.weight_bit_width)
-        self.c_proj     = qnn.QuantLinear(4* config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width)
+        self.quant_inp  = qnn.QuantIdentity(return_quant_tensor=True)
+        self.c_fc       = qnn.QuantLinear(config.n_embd, 4 * config.n_embd, bias=config.bias, weight_quant=IntDynamicWeightPerTensorFixedPoint, bias_quant=BiasQuantizer)
+        self.relu       = qnn.QuantReLU()
+        self.c_proj     = qnn.QuantLinear(4* config.n_embd, config.n_embd, bias=config.bias, weight_quant=IntDynamicWeightPerTensorFixedPoint, bias_quant=BiasQuantizer)
         self.dropout    = qnn.QuantDropout(config.dropout)
 
     def forward(self, x):
@@ -131,6 +132,12 @@ class QuantBlock(nn.Module):
         super().__init__()
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
         self.attn = qnn.QuantMultiheadAttention(embed_dim=config.n_embd, num_heads=config.n_head)
+        # self.attn = qnn.QuantMultiheadAttention(embed_dim=config.n_embd, num_heads=config.n_head, in_proj_input_quant=DynamicFixedPointQuantizer, 
+        #                                         out_proj_input_quant=DynamicFixedPointQuantizer, in_proj_weight_quant=DynamicFixedPointQuantizer,
+        #                                         out_proj_weight_quant=DynamicFixedPointQuantizer, in_proj_bias_quant=BiasQuantizer, 
+        #                                         out_proj_bias_quant=BiasQuantizer, softmax_input_quant=DynamicFixedPointQuantizer, 
+        #                                         attn_output_weights_quant=DynamicFixedPointQuantizer, out_proj_output_quant=DynamicFixedPointQuantizer,
+        #                                         k_transposed_quant=DynamicFixedPointQuantizer, q_scaled_quant=DynamicFixedPointQuantizer)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = QuantMLP(config)
 
