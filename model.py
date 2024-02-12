@@ -151,11 +151,6 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-
-class QuantGPTConfig(GPTConfig):
-    def __init__(self, block_size, vocab_size, n_layer, n_head, n_embd, dropout, bias, weight_bit_width = 8):
-        super().__init__(block_size, vocab_size, n_layer, n_head, n_embd, dropout, bias)
-        self.weight_bit_width = weight_bit_width
     
 class GPT(nn.Module):
 
@@ -382,4 +377,4 @@ class QuantGPT(GPT):
             h = nn.ModuleList([QuantBlock(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
-        self.lm_head = qnn.QuantLinear(config.n_embd, config.vocab_size, bias=False, weight_bit_width=config.weight_bit_width)
+        self.lm_head = qnn.QuantLinear(config.n_embd, config.vocab_size, bias=False, weight_quant=IntDynamicWeightPerTensorFixedPoint)
