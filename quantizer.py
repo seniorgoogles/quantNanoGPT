@@ -12,11 +12,11 @@ class BiasQuantizer(BiasQuantSolver):
 class PerTensorPoTScaling16bit(ExtendedInjector):
     scaling_per_output_channel = False
     restrict_scaling_type = RestrictValueType.POWER_OF_TWO
-    bit_width = 16
+    bit_width = DYNAMIC_QUANTIZER_BIT_WIDTH
     restrict_value_float_to_int_impl = CeilSte
 
 class IntDynamicWeightPerTensorFixedPoint(NarrowIntQuant,
                                  MaxStatsScaling,
                                  PerTensorPoTScaling16bit,
                                  WeightQuantSolver):
-    bit_width = DYNAMIC_QUANTIZER_BIT_WIDTH
+    pass

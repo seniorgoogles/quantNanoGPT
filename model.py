@@ -131,13 +131,8 @@ class QuantBlock(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
-        self.attn = qnn.QuantMultiheadAttention(embed_dim=config.n_embd, num_heads=config.n_head)
-        # self.attn = qnn.QuantMultiheadAttention(embed_dim=config.n_embd, num_heads=config.n_head, in_proj_input_quant=DynamicFixedPointQuantizer, 
-        #                                         out_proj_input_quant=DynamicFixedPointQuantizer, in_proj_weight_quant=DynamicFixedPointQuantizer,
-        #                                         out_proj_weight_quant=DynamicFixedPointQuantizer, in_proj_bias_quant=BiasQuantizer, 
-        #                                         out_proj_bias_quant=BiasQuantizer, softmax_input_quant=DynamicFixedPointQuantizer, 
-        #                                         attn_output_weights_quant=DynamicFixedPointQuantizer, out_proj_output_quant=DynamicFixedPointQuantizer,
-        #                                         k_transposed_quant=DynamicFixedPointQuantizer, q_scaled_quant=DynamicFixedPointQuantizer)
+        #self.attn = qnn.QuantMultiheadAttention(embed_dim=config.n_embd, num_heads=config.n_head)
+        self.attn = qnn.QuantMultiheadAttention(embed_dim=config.n_embd, num_heads=config.n_head, in_proj_weight_quant=IntDynamicWeightPerTensorFixedPoint, out_proj_weight_quant=IntDynamicWeightPerTensorFixedPoint)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = QuantMLP(config)
 
