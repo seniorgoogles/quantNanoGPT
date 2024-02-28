@@ -147,14 +147,12 @@ class MLP(nn.Module):
 class QuantMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.quant_inp  = qnn.QuantIdentity(bit_width=config.weight_bit_width, return_quant_tensor=True)
         self.c_fc       = qnn.QuantLinear(config.n_embd, 4 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width)
         self.relu       = qnn.QuantReLU(bit_width=config.weight_bit_width)
         self.c_proj     = qnn.QuantLinear(4* config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width)
         self.dropout    = qnn.QuantDropout(config.dropout)
 
     def forward(self, x):
-        x = self.quant_inp(x)
         x = self.c_fc(x)
         x = self.relu(x)
         x = self.c_proj(x)
