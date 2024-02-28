@@ -16,6 +16,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 import brevitas.nn as qnn
+from brevitas.core.bit_width.const import BitWidthConst
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -427,8 +428,10 @@ class QuantGPT(GPT):
             h = nn.ModuleList([QuantBlock(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
+        update_bitwidth(self.transformer["wte"].weight_quant, config.weight_bit_width)
+        update_bitwidth(self.transformer["wpe"].weight_quant, config.weight_bit_width)
         self.lm_head = qnn.QuantLinear(config.n_embd, config.vocab_size, bias=False, weight_bit_width=config.weight_bit_width)
-    
+        
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
         assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
@@ -459,3 +462,12 @@ class QuantGPT(GPT):
         sd = model.state_dict()
         sd_keys = sd.keys()
         sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')] # discard this mask / buffer, not a param
+
+
+def update_bitwidth(module, bit_width):
+    device = next(iter(module.parameters())).device
+    dtype = next(iter(module.parameters())).dtype
+    new_value = torch.tensor(bit_width, device=device, dtype=dtype)
+    for name, submodule in module.named_modules():
+        if isinstance(submodule, BitWidthConst):
+            submodule.bit_width.value = new_value
