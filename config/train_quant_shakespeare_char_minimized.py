@@ -1,3 +1,5 @@
+import time
+
 # train a miniature character-level shakespeare model
 # good for debugging and playing on macbooks and such
 
@@ -11,7 +13,7 @@ always_save_checkpoint = False
 
 wandb_log = False # override via command line if you like
 wandb_project = 'shakespeare-char'
-wandb_run_name = 'mini-gpt'
+wandb_run_name = 'quant-shakespeare-char-minimized-' + str(time.time())
 
 dataset = 'shakespeare_char'
 gradient_accumulation_steps = 1
@@ -37,4 +39,4 @@ device = 'cpu'  # run on cpu only
 compile = False # do not torch compile the model
 
 # Quantization
-weight_bit_width = 16
+weight_bit_width = 8
