@@ -17,6 +17,7 @@ from torch.nn import functional as F
 
 import brevitas.nn as qnn
 from brevitas.core.bit_width.const import BitWidthConst
+from brevitas.quant.scaled_int import Int8ActPerTensorFloat
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -84,9 +85,12 @@ class QuantSelfAttention(nn.Module):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = qnn.QuantLinear(config.n_embd, 3 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width)
+        self.c_attn = qnn.QuantLinear(config.n_embd, 3 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat, return_quant_tensor=True)
         # output projection
-        self.c_proj = qnn.QuantLinear(config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width)
+        self.c_proj = qnn.QuantLinear(config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat, return_quant_tensor=True)
+        update_bitwidth(self.c_attn.output_quant, config.weight_bit_width)
+        update_bitwidth(self.c_proj.output_quant, config.weight_bit_width)
+
         # regularization
         self.attn_dropout = qnn.QuantDropout(config.dropout)
         self.resid_dropout = qnn.QuantDropout(config.dropout)
@@ -105,7 +109,7 @@ class QuantSelfAttention(nn.Module):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
+        q, k, v  = self.c_attn(x).value.split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -147,9 +151,9 @@ class MLP(nn.Module):
 class QuantMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.c_fc       = qnn.QuantLinear(config.n_embd, 4 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width)
+        self.c_fc       = qnn.QuantLinear(config.n_embd, 4 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat, return_quant_tensor=True)
         self.relu       = qnn.QuantReLU(bit_width=config.weight_bit_width)
-        self.c_proj     = qnn.QuantLinear(4* config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width)
+        self.c_proj     = qnn.QuantLinear(4* config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat, return_quant_tensor=True)
         self.dropout    = qnn.QuantDropout(config.dropout)
 
     def forward(self, x):
