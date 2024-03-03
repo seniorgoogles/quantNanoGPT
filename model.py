@@ -424,15 +424,16 @@ class QuantGPT(GPT):
         super().__init__(config)
 
         self.transformer = nn.ModuleDict(dict(
-            wte = qnn.QuantEmbedding(config.vocab_size, config.n_embd),
+            wte = qnn.QuantEmbedding(config.vocab_size, config.n_embd, return_quant_tensor=True),
             wpe = qnn.QuantEmbedding(config.block_size, config.n_embd),
             drop = qnn.QuantDropout(config.dropout),
             h = nn.ModuleList([QuantBlock(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
-        update_bitwidth(self.transformer.wte.weight_quant, config.weight_bit_width)
-        update_bitwidth(self.transformer.wpe.weight_quant, config.weight_bit_width)
-        self.lm_head = qnn.QuantLinear(config.n_embd, config.vocab_size, bias=False, weight_bit_width=config.weight_bit_width)
+        update_bitwidth(self.transformer.wte, config.weight_bit_width)
+        update_bitwidth(self.transformer.wpe, config.weight_bit_width)
+        self.lm_head = qnn.QuantLinear(config.n_embd, config.vocab_size, bias=False, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat, return_quant_tensor=True)
+        update_bitwidth(self.lm_head.output_quant, config.weight_bit_width)
         
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
