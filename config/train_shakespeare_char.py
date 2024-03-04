@@ -12,7 +12,7 @@ always_save_checkpoint = False
 
 wandb_log = False # override via command line if you like
 wandb_project = 'shakespeare-char'
-wandb_run_name = 'shakespeare-char-minimized-' + str(time.time())
+wandb_run_name = 'shakespeare-char-' + str(time.time())
 
 dataset = 'shakespeare_char'
 gradient_accumulation_steps = 1
@@ -36,6 +36,3 @@ warmup_iters = 100 # not super necessary potentially
 # on macbook also add
 # device = 'cpu'  # run on cpu only
 # compile = False # do not torch compile the model
-
-# Quantization
-weight_bit_width = 16
