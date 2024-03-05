@@ -212,12 +212,15 @@ def estimate_loss():
     model.eval()
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
+        perplexities = torch.zeros(eval_iters)
         for k in range(eval_iters):
             X, Y = get_batch(split)
             with ctx:
-                logits, loss = model(X, Y)
+                logits, loss, perplexity = model(X, Y)
             losses[k] = loss.item()
-        out[split] = losses.mean()
+            perplexities[k] = perplexity
+        out[split + "-loss"] = losses.mean()
+        out[split + "-perp"] = perplexities.mean()
     model.train()
     return out
 
@@ -256,17 +259,19 @@ while True:
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
         losses = estimate_loss()
-        print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        print(f"step {iter_num}: train loss {losses['train-loss']:.4f}, train perplexity: {losses["train-perp"]:.4f}, val loss {losses['val-loss']:.4f}, val perplexity: {losses['val-perp']:.4f}")
         if wandb_log:
             wandb.log({
                 "iter": iter_num,
-                "train/loss": losses['train'],
-                "val/loss": losses['val'],
+                "train/loss": losses['train-loss'],
+                "val/loss": losses['val-loss'],
+                "train/perplexity": losses['train-perp'],
+                "val/perplexity": losses['val-perp'],
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage,
             })
-        if losses['val'] < best_val_loss or always_save_checkpoint:
-            best_val_loss = losses['val']
+        if losses['val-loss'] < best_val_loss or always_save_checkpoint:
+            best_val_loss = losses['val-loss']
             if iter_num > 0:
                 checkpoint = {
                     'model': raw_model.state_dict(),
@@ -291,7 +296,7 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
-            logits, loss = model(X, Y)
+            logits, loss, perplexity = model(X, Y)
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         X, Y = get_batch('train')
@@ -318,7 +323,7 @@ while True:
         if local_iter_num >= 5: # let the training loop settle a bit
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
-        print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
+        print(f"iter {iter_num}: loss {lossf:.4f}, perplexity {perplexity:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
     iter_num += 1
     local_iter_num += 1
 
