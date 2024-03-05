@@ -40,3 +40,5 @@ compile = False # do not torch compile the model
 
 # Quantization
 weight_bit_width = 8
+quant_output = False
+output_bit_width = 8

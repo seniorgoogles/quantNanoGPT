@@ -48,6 +48,8 @@ dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported
 compile = True # use PyTorch 2.0 to compile the model to be faster
 # Quantization
 weight_bit_width = 8
+quant_output = False
+output_bit_width = 8
 
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
@@ -73,10 +75,12 @@ if model_type == "quant":
     print("Initializing a new model from scratch")
     # determine the vocab size we'll use for from-scratch training
     model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                    bias=bias, vocab_size=None, dropout=dropout, weight_bit_width=weight_bit_width) # start with model_args from command line
+                    bias=bias, vocab_size=None, dropout=dropout, weight_bit_width=weight_bit_width,
+                    quant_output=quant_output, output_bit_width=output_bit_width) # start with model_args from command line
     model_args['vocab_size'] = 50304
     gptconf = QuantGPTConfig(**model_args)
     model = QuantGPT(gptconf)
 
     torchinfo.summary(model)
+    #print(model)
     #print(model)
