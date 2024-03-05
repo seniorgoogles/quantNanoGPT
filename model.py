@@ -18,6 +18,7 @@ from torch.nn import functional as F
 import brevitas.nn as qnn
 from brevitas.core.bit_width.const import BitWidthConst
 from brevitas.quant.scaled_int import Int8ActPerTensorFloat
+from brevitas.quant.ternary import SignedTernaryActPerTensorConst
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -85,11 +86,9 @@ class QuantSelfAttention(nn.Module):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = qnn.QuantLinear(config.n_embd, 3 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat, return_quant_tensor=True)
+        self.c_attn = qnn.QuantLinear(config.n_embd, 3 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat if config.quant_output else None, output_bit_width=config.output_bit_width, return_quant_tensor=config.quant_output)
         # output projection
-        self.c_proj = qnn.QuantLinear(config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat, return_quant_tensor=True)
-        update_bitwidth(self.c_attn.output_quant, config.weight_bit_width)
-        update_bitwidth(self.c_proj.output_quant, config.weight_bit_width)
+        self.c_proj = qnn.QuantLinear(config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat if config.quant_output else None, output_bit_width=config.output_bit_width, return_quant_tensor=config.quant_output)
 
         # regularization
         self.attn_dropout = qnn.QuantDropout(config.dropout)
@@ -97,6 +96,7 @@ class QuantSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
+        self.quant_output = config.quant_output
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
@@ -109,7 +109,11 @@ class QuantSelfAttention(nn.Module):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        q, k, v  = self.c_attn(x).value.split(self.n_embd, dim=2)
+        if(self.quant_output):
+            q, k, v  = self.c_attn(x).value.split(self.n_embd, dim=2)
+        else:
+            q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
+
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -131,7 +135,6 @@ class QuantSelfAttention(nn.Module):
         y = self.resid_dropout(self.c_proj(y))
         return y
 
-
 class MLP(nn.Module):
 
     def __init__(self, config):
@@ -151,9 +154,9 @@ class MLP(nn.Module):
 class QuantMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.c_fc       = qnn.QuantLinear(config.n_embd, 4 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat, return_quant_tensor=True)
-        self.relu       = qnn.QuantReLU(bit_width=config.weight_bit_width)
-        self.c_proj     = qnn.QuantLinear(4* config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat, return_quant_tensor=True)
+        self.c_fc       = qnn.QuantLinear(config.n_embd, 4 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat if config.quant_output else None, output_bit_width=config.output_bit_width, return_quant_tensor=config.quant_output)
+        self.relu       = qnn.QuantReLU(bit_width=config.weight_bit_width, return_quant_tensor=config.quant_output)
+        self.c_proj     = qnn.QuantLinear(4* config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat if config.quant_output else None, output_bit_width=config.output_bit_width, return_quant_tensor=config.quant_output)
         self.dropout    = qnn.QuantDropout(config.dropout)
 
     def forward(self, x):
@@ -204,6 +207,8 @@ class GPTConfig:
 @dataclass
 class QuantGPTConfig(GPTConfig):
     weight_bit_width: int = 8
+    quant_output: bool = False
+    output_bit_width: int = 8
     
 class GPT(nn.Module):
 
@@ -266,7 +271,9 @@ class GPT(nn.Module):
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
+        
         x = self.transformer.drop(tok_emb + pos_emb)
+
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
@@ -403,9 +410,15 @@ class GPT(nn.Module):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             # forward the model to get the logits for the index in the sequence
+            
             logits, _ = self(idx_cond)
+
+            if self.config.quant_output:
+                logits = logits.value[:, -1, :] / temperature
+            else:
+                logits = logits[:, -1, :] / temperature
             # pluck the logits at the final step and scale by desired temperature
-            logits = logits[:, -1, :] / temperature
+
             # optionally crop the logits to only the top k options
             if top_k is not None:
                 v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
@@ -424,16 +437,13 @@ class QuantGPT(GPT):
         super().__init__(config)
 
         self.transformer = nn.ModuleDict(dict(
-            wte = qnn.QuantEmbedding(config.vocab_size, config.n_embd, return_quant_tensor=True),
-            wpe = qnn.QuantEmbedding(config.block_size, config.n_embd),
+            wte = qnn.QuantEmbedding(config.vocab_size, config.n_embd, weight_bit_width=config.weight_bit_width),
+            wpe = qnn.QuantEmbedding(config.block_size, config.n_embd, weight_bit_width=config.weight_bit_width),
             drop = qnn.QuantDropout(config.dropout),
             h = nn.ModuleList([QuantBlock(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
-        update_bitwidth(self.transformer.wte, config.weight_bit_width)
-        update_bitwidth(self.transformer.wpe, config.weight_bit_width)
-        self.lm_head = qnn.QuantLinear(config.n_embd, config.vocab_size, bias=False, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat, return_quant_tensor=True)
-        update_bitwidth(self.lm_head.output_quant, config.weight_bit_width)
+        self.lm_head = qnn.QuantLinear(config.n_embd, config.vocab_size, bias=False, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat if config.quant_output else None, output_bit_width=config.output_bit_width, return_quant_tensor=config.quant_output)
         
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
@@ -466,11 +476,35 @@ class QuantGPT(GPT):
         sd_keys = sd.keys()
         sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')] # discard this mask / buffer, not a param
 
+    def forward(self, idx, targets=None):
+        device = idx.device
+        b, t = idx.size()
+        assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
+        pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
 
-def update_bitwidth(module, bit_width):
-    device = next(iter(module.parameters())).device
-    dtype = next(iter(module.parameters())).dtype
-    new_value = torch.tensor(bit_width, device=device, dtype=dtype)
-    for name, submodule in module.named_modules():
-        if isinstance(submodule, BitWidthConst):
-            submodule.bit_width.value = new_value
+        # forward the GPT model itself
+        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
+        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
+        
+        if(self.config.quant_output):
+            quant_identity = qnn.QuantIdentity(return_quant_tensor=True, act_quant=Int8ActPerTensorFloat, output_bit_width=self.config.output_bit_width)
+            quant_tok_emb = quant_identity(tok_emb)
+            quant_pos_emb = quant_identity(pos_emb)
+            x = self.transformer.drop(quant_tok_emb + quant_pos_emb)
+        else:
+            x = self.transformer.drop(tok_emb + pos_emb)
+
+        for block in self.transformer.h:
+            x = block(x)
+        x = self.transformer.ln_f(x)
+
+        if targets is not None:
+            # if we are given some desired targets also calculate the loss
+            logits = self.lm_head(x)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+        else:
+            # inference-time mini-optimization: only forward the lm_head on the very last position
+            logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
+            loss = None
+
+        return logits, loss
