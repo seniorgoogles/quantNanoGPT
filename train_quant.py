@@ -259,7 +259,7 @@ while True:
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
         losses = estimate_loss()
-        print(f"step {iter_num}: train loss {losses['train-loss']:.4f}, train perplexity: {losses["train-perp"]:.4f}, val loss {losses['val-loss']:.4f}, val perplexity: {losses['val-perp']:.4f}")
+        print(f"step {iter_num}: train loss {losses['train-loss']:.4f}, train perplexity: {losses['train-perp']:.4f}, val loss {losses['val-loss']:.4f}, val perplexity: {losses['val-perp']:.4f}")
         if wandb_log:
             wandb.log({
                 "iter": iter_num,
