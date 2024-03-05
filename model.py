@@ -488,6 +488,7 @@ class QuantGPT(GPT):
         
         if(self.config.quant_output):
             quant_identity = qnn.QuantIdentity(return_quant_tensor=True, act_quant=Int8ActPerTensorFloat, output_bit_width=self.config.output_bit_width)
+            quant_identity.to(device)
             quant_tok_emb = quant_identity(tok_emb)
             quant_pos_emb = quant_identity(pos_emb)
             x = self.transformer.drop(quant_tok_emb + quant_pos_emb)
