@@ -289,6 +289,7 @@ class GPT(nn.Module):
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
             loss = None
+            perplexity = None
 
         return logits, loss, perplexity
 
@@ -414,9 +415,9 @@ class GPT(nn.Module):
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             # forward the model to get the logits for the index in the sequence
             
-            logits, _ = self(idx_cond)
+            logits, _, perplexity = self(idx_cond)
 
-            if self.config.quant_output:
+            if hasattr(self.config, "quant_output") and self.config.quant_output:
                 logits = logits.value[:, -1, :] / temperature
             else:
                 logits = logits[:, -1, :] / temperature
@@ -514,5 +515,6 @@ class QuantGPT(GPT):
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
             loss = None
+            perplexity = None
 
         return logits, loss, perplexity
