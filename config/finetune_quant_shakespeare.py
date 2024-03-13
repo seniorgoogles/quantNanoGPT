@@ -25,6 +25,7 @@ learning_rate = 3e-5
 decay_lr = False
 
 # Quantization
+quantization_enabled = True
 weight_bit_width = 8
 quant_output = False
 output_bit_width = 8

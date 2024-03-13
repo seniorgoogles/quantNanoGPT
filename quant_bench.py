@@ -15,6 +15,8 @@ n_layer = 12
 n_head = 12 
 n_embd = 768
 weight_bit_width = 8
+quant_output = False
+output_bit_width = 8
 bias = False
 real_data = True
 seed = 1337
@@ -55,7 +57,7 @@ else:
 gptconf = QuantGPTConfig(
     block_size = block_size, # how far back does the model look? i.e. context size
     n_layer = n_layer, n_head = n_head, n_embd = n_embd, # size of the model
-    weight_bit_width = weight_bit_width,
+    weight_bit_width = weight_bit_width, quant_output=quant_output, output_bit_width=output_bit_width,
     dropout = 0, # for determinism
     bias = bias,
 )
@@ -99,7 +101,6 @@ if profile:
             prof.step() # notify the profiler at end of each step
 
 else:
-
     # simple benchmarking
     torch.cuda.synchronize()
     for stage, num_steps in enumerate([10, 20]): # burnin, then benchmark
