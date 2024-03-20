@@ -19,7 +19,7 @@ from torchmetrics.text import Perplexity
 import brevitas.nn as qnn
 from brevitas.core.bit_width.const import BitWidthConst
 from brevitas.quant.scaled_int import Int8ActPerTensorFloat
-from brevitas.quant.ternary import SignedTernaryActPerTensorConst
+from brevitas.quant.ternary import SignedTernaryActPerTensorConst, SignedTernaryWeightPerTensorConst
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -87,9 +87,9 @@ class QuantSelfAttention(nn.Module):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = qnn.QuantLinear(config.n_embd, 3 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat if config.quant_output else None, output_bit_width=config.output_bit_width, return_quant_tensor=config.quant_output)
+        self.c_attn = qnn.QuantLinear(config.n_embd, 3 * config.n_embd, bias=config.bias, weight_quant=SignedTernaryWeightPerTensorConst, output_quant=SignedTernaryActPerTensorConst if config.quant_output else None, return_quant_tensor=config.quant_output)
         # output projection
-        self.c_proj = qnn.QuantLinear(config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat if config.quant_output else None, output_bit_width=config.output_bit_width, return_quant_tensor=config.quant_output)
+        self.c_proj = qnn.QuantLinear(config.n_embd, config.n_embd, bias=config.bias, weight_quant=SignedTernaryWeightPerTensorConst, output_quant=SignedTernaryActPerTensorConst if config.quant_output else None, return_quant_tensor=config.quant_output)
 
         # regularization
         self.attn_dropout = qnn.QuantDropout(config.dropout)
@@ -155,9 +155,9 @@ class MLP(nn.Module):
 class QuantMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.c_fc       = qnn.QuantLinear(config.n_embd, 4 * config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat if config.quant_output else None, output_bit_width=config.output_bit_width, return_quant_tensor=config.quant_output)
+        self.c_fc       = qnn.QuantLinear(config.n_embd, 4 * config.n_embd, bias=config.bias, weight_quant=SignedTernaryWeightPerTensorConst, output_quant=SignedTernaryActPerTensorConst if config.quant_output else None, return_quant_tensor=config.quant_output)
         self.relu       = qnn.QuantReLU(bit_width=config.weight_bit_width, return_quant_tensor=config.quant_output)
-        self.c_proj     = qnn.QuantLinear(4* config.n_embd, config.n_embd, bias=config.bias, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat if config.quant_output else None, output_bit_width=config.output_bit_width, return_quant_tensor=config.quant_output)
+        self.c_proj     = qnn.QuantLinear(4* config.n_embd, config.n_embd, bias=config.bias, weight_quant=SignedTernaryWeightPerTensorConst, output_quant=SignedTernaryActPerTensorConst if config.quant_output else None, return_quant_tensor=config.quant_output)
         self.dropout    = qnn.QuantDropout(config.dropout)
 
     def forward(self, x):
@@ -447,7 +447,7 @@ class QuantGPT(GPT):
             h = nn.ModuleList([QuantBlock(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
         ))
-        self.lm_head = qnn.QuantLinear(config.n_embd, config.vocab_size, bias=False, weight_bit_width=config.weight_bit_width, output_quant=Int8ActPerTensorFloat if config.quant_output else None, output_bit_width=config.output_bit_width, return_quant_tensor=config.quant_output)
+        self.lm_head = qnn.QuantLinear(config.n_embd, config.vocab_size, bias=False, weight_quant=SignedTernaryWeightPerTensorConst, output_quant=SignedTernaryActPerTensorConst if config.quant_output else None, return_quant_tensor=config.quant_output)
         
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
@@ -491,7 +491,7 @@ class QuantGPT(GPT):
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         
         if(self.config.quant_output):
-            quant_identity = qnn.QuantIdentity(return_quant_tensor=True, act_quant=Int8ActPerTensorFloat, output_bit_width=self.config.output_bit_width)
+            quant_identity = qnn.QuantIdentity(return_quant_tensor=True, act_quant=SignedTernaryActPerTensorConst)
             quant_identity.to(device)
             quant_tok_emb = quant_identity(tok_emb)
             quant_pos_emb = quant_identity(pos_emb)
